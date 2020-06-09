@@ -85,6 +85,8 @@ type Factory struct {
 	// catalog is the opt catalog, used to resolve names during constant folding
 	// of special metadata queries like 'table_name'::regclass.
 	catalog cat.Catalog
+
+	indent []string
 }
 
 // Init initializes a Factory structure with a new, blank memo structure inside.
@@ -101,6 +103,7 @@ func (f *Factory) Init(evalCtx *tree.EvalContext, catalog cat.Catalog) {
 	f.funcs.Init(f)
 	f.matchedRule = nil
 	f.appliedRule = nil
+	f.indent = []string{""}
 }
 
 // DetachMemo extracts the memo from the optimizer, and then re-initializes the
@@ -256,6 +259,7 @@ func (f *Factory) onConstructRelational(rel memo.RelExpr) memo.RelExpr {
 	// SimplifyZeroCardinalityGroup replaces a group with [0 - 0] cardinality
 	// with an empty values expression. It is placed here because it depends on
 	// the logical properties of the group in question.
+	log.Infof(f.evalCtx.Context, "construct \"%s\" directly", rel.Op().String())
 	if rel.Op() != opt.ValuesOp {
 		relational := rel.Relational()
 		if relational.Cardinality.IsZero() && !relational.CanHaveSideEffects {

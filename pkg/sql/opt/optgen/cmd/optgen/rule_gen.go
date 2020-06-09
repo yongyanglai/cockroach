@@ -676,6 +676,7 @@ func (g *newRuleGen) genNormalizeReplace(define *lang.DefineExpr, rule *lang.Rul
 	g.w.nestIndent("if _f.matchedRule == nil || _f.matchedRule(opt.%s) {\n", rule.Name)
 
 	g.genBoundStatements(rule.Replace)
+	g.w.writeIndent("log.Info(_f.evalCtx.Context,  _f.indent[len(_f.indent)-1] + \"apply rule [%s]\")\n", rule.Name)
 	g.w.writeIndent("_expr := ")
 	g.genNestedExpr(rule.Replace)
 	if rule.Replace.InferredType() == lang.AnyDataType {

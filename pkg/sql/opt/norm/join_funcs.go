@@ -579,3 +579,93 @@ func (c *CustomFuncs) CommuteJoinFlags(p *memo.JoinPrivate) *memo.JoinPrivate {
 	res.Flags = f
 	return &res
 }
+
+func (c *CustomFuncs) PopulateFiltersRejectingNullFilters(
+	joinOperator opt.Operator,
+	on memo.FiltersExpr,
+	left memo.RelExpr,
+	right memo.RelExpr,
+	) memo.FiltersExpr {
+	equivFD := c.GetEquivFD(on, left, right)
+	allEquivCols := equivFD.ComputeEquivClosure(equivFD.EquivReps())
+	notNullColsLeft := c.NotNullCols(left)
+	notNullColsRight := c.NotNullCols(right)
+	log.Infof(c.f.evalCtx.Context,"equivFD:%s",equivFD.String())
+	log.Infof(c.f.evalCtx.Context, "notNullColsLeft:%s", notNullColsLeft.String())
+	log.Infof(c.f.evalCtx.Context, "notNullColsRight:%s", notNullColsRight.String())
+	var notNullCols opt.ColSet
+	switch joinOperator {
+	case opt.InnerJoinOp:
+		notNullCols = notNullCols.Union(allEquivCols).Difference(notNullColsLeft).Difference(notNullColsRight)
+	case opt.LeftJoinOp:
+		notNullCols = notNullCols.Union(equivFD.ComputeEquivClosure(notNullColsLeft).Difference(notNullColsLeft))
+	case opt.RightJoinOp:
+		notNullCols = notNullCols.Union(equivFD.ComputeEquivClosure(notNullColsRight).Difference(notNullColsRight))
+	default:
+		panic(errors.AssertionFailedf("unexpected join operator: %v", log.Safe(joinOperator)))
+	}
+
+	return append(on, c.buildRejectingNullFilters(notNullCols)...)
+}
+func (c *CustomFuncs) buildRejectingNullFilters(colToRejectNull opt.ColSet) []memo.FiltersItem {
+	var filters memo.FiltersExpr
+	colToRejectNull.ForEach(func(col opt.ColumnID){
+		filterItem := c.f.ConstructFiltersItem(
+			c.f.ConstructIsNot(
+				c.f.ConstructVariable(col),
+				c.f.ConstructNull(c.f.funcs.AnyType()),
+			))
+		filters = append(filters, filterItem)
+	})
+	log.Infof(c.f.evalCtx.Context, "built filters:%s", filters.String())
+	return filters
+}
+
+func (c *CustomFuncs) testRejectNullExistence(
+	joinOperator opt.Operator,
+	anotherInput opt.ColSet,
+	inputToTest opt.ColSet,
+	equivFD props.FuncDepSet) bool {
+	var notNullColsToPushToAnotherSide opt.ColSet
+	switch joinOperator {
+	case opt.InnerJoinOp:
+		log.Info(c.f.evalCtx.Context, "case opt.InnerJoinOp:")
+		notNullColsToPushToAnotherSide = equivFD.ComputeEquivClosure(equivFD.EquivReps()).Difference(anotherInput)
+	case opt.LeftJoinOp, opt.RightJoinOp:
+		log.Info(c.f.evalCtx.Context, "case opt.LeftJoinOp: case opt.RightJoinOp:")
+		notNullColsToPushToAnotherSide = equivFD.ComputeEquivClosure(anotherInput).Difference(anotherInput)
+	default:
+		panic(errors.AssertionFailedf("unexpected join operator: %v", log.Safe(joinOperator)))
+	}
+	log.Infof(c.f.evalCtx.Context,"equivFD:%s",equivFD.String())
+	log.Infof(c.f.evalCtx.Context, "anotherInput:%s", anotherInput.String())
+	log.Infof(c.f.evalCtx.Context, "inputToTest:%s", inputToTest.String())
+	log.Infof(c.f.evalCtx.Context, "equivFD.ComputeEquivClosure(anotherInput):%s", equivFD.ComputeEquivClosure(anotherInput))
+	log.Infof(c.f.evalCtx.Context,"notNullColsToPushToAnotherSide:%s",notNullColsToPushToAnotherSide.String())
+	return notNullColsToPushToAnotherSide.SubsetOf(inputToTest)
+
+}
+
+func (c *CustomFuncs) IsPullingUpNecessary(
+	joinOperator opt.Operator,
+	on memo.FiltersExpr,
+	left memo.RelExpr,
+	right memo.RelExpr) bool {
+	equivFD := c.GetEquivFD(on, left, right)
+	notNullColsLeft := c.NotNullCols(left)
+	notNullColsRight := c.NotNullCols(right)
+	switch joinOperator {
+	case opt.InnerJoinOp:
+		log.Info(c.f.evalCtx.Context, "InnerJoinOp")
+		return !c.testRejectNullExistence(opt.InnerJoinOp,notNullColsLeft,notNullColsRight,equivFD) ||
+			!c.testRejectNullExistence(joinOperator, notNullColsRight, notNullColsLeft, equivFD)
+	case opt.LeftJoinOp :
+		log.Info(c.f.evalCtx.Context, "LeftJoinOp")
+		return !c.testRejectNullExistence(joinOperator, notNullColsLeft, notNullColsRight, equivFD)
+	case opt.RightJoinOp:
+		log.Info(c.f.evalCtx.Context, "RightJoinOp")
+		return !c.testRejectNullExistence(joinOperator, notNullColsRight, notNullColsLeft, equivFD)
+	default:
+		panic(errors.AssertionFailedf("unexpected join operator: %v", log.Safe(joinOperator)))
+	}
+}

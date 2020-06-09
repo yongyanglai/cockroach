@@ -538,3 +538,18 @@ $left
 )
 =>
 (InnerJoin $left $right (SortFilters $on) $private)
+
+[PullUpAndPopulateNotNullFilters, Normalize]
+(InnerJoin | LeftJoin | RightJoin
+    $left:*
+    $right:*
+    $on:* &(IsPullingUpNecessary (OpName) $on $left $right)
+    $private:*
+)
+=>
+((OpName)
+    $left
+    $right
+    (PopulateFiltersRejectingNullFilters (OpName) $on $left $right)
+    $private
+)

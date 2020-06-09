@@ -36,6 +36,7 @@ func (g *factoryGen) generate(compiled *lang.CompiledExpr, w io.Writer) {
 
 	g.w.nestIndent("import (\n")
 	g.w.writeIndent("\n")
+	g.w.writeIndent("\"github.com/cockroachdb/cockroach/pkg/util/log\"\n")
 	g.w.writeIndent("\"github.com/cockroachdb/cockroach/pkg/sql/opt\"\n")
 	g.w.writeIndent("\"github.com/cockroachdb/cockroach/pkg/sql/opt/memo\"\n")
 	g.w.writeIndent("\"github.com/cockroachdb/cockroach/pkg/sql/opt/props/physical\"\n")
@@ -116,6 +117,8 @@ func (g *factoryGen) genConstructFuncs() {
 			}
 			g.w.writeIndent("return item\n")
 		} else {
+			//g.w.writeIndent("_f.indent = append(_f.indent, _f.indent[len(_f.indent)-1]+\"				\")\n")
+			g.w.writeIndent("log.Info(_f.evalCtx.Context, \"enter %s\")\n", define.Name)
 			// Only include normalization rules for the current define.
 			rules := g.compiled.LookupMatchingRules(string(define.Name)).WithTag("Normalize")
 			sortRulesByPriority(rules)
@@ -126,6 +129,8 @@ func (g *factoryGen) genConstructFuncs() {
 				g.w.newline()
 			}
 
+			//g.w.writeIndent("_f.indent = _f.indent[:len(_f.indent)-1]\n")
+			//g.w.writeIndent("log.Info(_f.evalCtx.Context, \"construct \\\"%s\\\" directly\")\n", define.Name)
 			g.w.writeIndent("e := _f.mem.Memoize%s(", define.Name)
 			for i, field := range fields {
 				if i != 0 {
